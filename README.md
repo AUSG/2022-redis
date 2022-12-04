@@ -5,7 +5,7 @@
 > 매주 일요일 21시 ~ 23시에 진행합니다.
 
 - 1주차 (12/04): [Redis data types](https://redis.io/docs/data-types/)
-- 2주차 (12/11): TBD
+- 2주차 (12/11): [Using Redis](https://redis.io/docs/manual/)
 - 3주차 (12/18): TBD
 - 4주차 (12/25): TBD
 - 5주차 (01/01): TBD
