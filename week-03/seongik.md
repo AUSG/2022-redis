@@ -12,7 +12,7 @@
 
 ## How-to
 
-- 2.6 미만의 버전에서는 nc(netcat)를 이용하여 Redis 머신에 직접 txt io를 feeding하는 방식으로 수행한다. 다만 이 방식은언제 모든 데이터가 전송될지, 또 redis가 해당 데이터를 에러없이 잘 입력했는지 확인할 수 없기 때문에 권장되지 않는다.
+- 2.6 미만의 버전에서는 nc(netcat)를 이용하여 Redis 머신에 직접 txt io를 feeding하는 방식으로 수행한다. 다만 이 방식은 언제 모든 데이터가 전송될지, 또 redis가 해당 데이터를 에러없이 잘 입력했는지 확인할 수 없기 때문에 권장되지 않는다.
 
 - 2.6 이상의 버전에서는 redis-cli에 내장된 `pipe mode`를 사용한다.
 
@@ -135,23 +135,51 @@ $<len><cr><lf>
 
 
 
+[사견]
+
+레디스 문서에서는 다소 모호하게 distributed system이라는 단어만 사용하여 마치 클라이언트가 분산 환경일때 사용하는 락처럼 착각할수도 있는데, (적어도 내가 해석한 바로는) 레드락은 분산락의 subset 개념이다.
+
+- 분산 락은 여러 클라이언트를 가지는 분산 시스템에서 공유하는 락을 구현하는 방법이다.
+- 레드락은 분산 락의 일종이다.
+  - 정확히는, N개의 Read/Write 마스터 DB 노드를 가지는 상황에서 분산 락을 구현하는 방식이다.
+  - 레드락 알고리즘은 레디스 뿐만 아니라 다른 Disk DB등에도 적용될 수 있다.
+
+
+
+그런데 이 방식에서 가정하고 있듯 N개의 multiple master server node가 있다면, 그 모든 node에 동일한 키 정보를 가지도록 N번의 순차적인 요청을 보내 잡는 레드락 방식은 그다지 효율적이지 않아 보였다. 결국 1개의 키를 N개의 노드에 동일하게 보관한다는 말이기 때문이다.
+
+정확히 이유는 알 수 없지만,
+
+- 네트워크 레이턴시를 고려하여 세계 각지에 동일한 Redis 클러스터를 구축해야한다던가
+- 마스터 노드가 죽었을 때 레플리카가 싱크를 맞추고 승격되는 단 몇초간의 차이도 용납할 수 없는 중요한 서비스의 경우 가용성을 위해
+
+여러 마스터 노드를 띄워야할 가능성이 있지 않을까 추측해본다.
+
+- [Redlock 알고리즘 설계자이자 Redis 개발자 antirez의 아티클](http://antirez.com/news/101)
+
+  > ```
+  > Redlock is a client side distributed locking algorithm I designed to be used with Redis, but the algorithm orchestrates, client side, a set of nodes that implement a data store with certain capabilities, in order to create a multi-master fault tolerant, and hopefully safe, distributed lock with auto release capabilities.
+  > ```
+
+  여기에서 redlock의 목적을 implement a data store with certain capabilities, fault tolerant (+ safe)라고 언급하고 있다. 
+
+- [[Question]Why do we need distributed lock in Redis if we partition on Key?](https://github.com/redis/redis/issues/9651)
+
 
 
 ### Retry on Failure
 
-과반수의 락을 획득해야하는 레드락 알고리즘의 특성상 동일한 리소스에 대해 lock을 획득하려는 클라이언트들이 여럿 있으면 위험하므로, 이를 비동기화 하기 위해 요청이 실패할 시에 랜덤한 시간을 지연시키도록 구현해두어야한다(요청이 다시 동시에 몰리지 않도록 하기 위해서).
+과반수의 락을 획득해야하는 레드락 알고리즘의 특성상 동일한 리소스에 대해 lock을 획득하려는 클라이언트들이 여럿 있으면 위험하므로, 이를 비동기화 하기 위해 요청이 실패할 시에 랜덤한 시간을 지연시키도록 구현해두어야한다.
 
-
-
-### 안전성 논란
-
-
-
-### 생존성 논란
+- 요청이 다시 동시에 몰린다면 다음번에도 lock을 잡고자하는 클라이언트들이 경쟁하여 요청이 실패할 가능성이 있다.
 
 
 
 ### 성능, 장애 복구 및 fsync
+
+- fsync 기능은 레디스의 현재 상태를 영속적으로(persistently) 보관하기 위하여 disk DB처럼 file에 기록해두는 기능이다.
+- 일부 레디스 노드가 죽었을 때 기존의 분산락 정보를 잃어버린 상태로 재시작한다면, 다른 클라이언트가 분산 락을 또 잡게되는 불상사가 일어날 수 있다.
+  - 이론적으로는 이를 막기위해 `fsync=always` 옵션을 켜두어야한다. 물론, 이 방식은 큰 동기화 오버헤드를 수반한다(인메모리 DB를 디스크 DB처럼 매번 동기화시키는 꼴이니...)
 
 
 
@@ -169,10 +197,47 @@ $<len><cr><lf>
 
 Redis에서 생성할 수 있는 가장 간단한 보조 인덱스 형태로, double precision float 형태의 score를 인덱스로 사용하는 것이다. 이때 오름차순으로 정렬된다.
 
-score가 double precision의 float형태이기때문에, 순정 sorted set으로 구현할 수 있는 인덱싱 정밀도는 해당 수준에 한정된다.
+score가 double precision의 float형태이기때문에, 순정 sorted set으로 구현할 수 있는 인덱싱 정밀도는 해당 수준(-2^53 ~ + 2^53)에 한정된다.
 
 
 
 ## object ID와 연결한 인덱스 만들기
 
- 
+object에 직접적으로 score index를 연결하여  sorted set을 구현하는 방식보다, object의 일부 필드(예를 들어 ID)를 이용하여 해당 필드와 score용 인덱싱 필드를 연관지어서 sorted set을 만들어두는 방식도 있다. 이 경우 인덱싱에 연결된 필드(ex-ID)가 변경하지만 않으면 score index를 변경하면서 object는 건드리지 않을 수 있다.
+
+```bash
+HMSET user:1 id 1 username antirez ctime 1444809424 age 38
+HMSET user:2 id 2 username maria ctime 1444808132 age 42
+HMSET user:3 id 3 username jballard ctime 1443246218 age 33
+```
+
+
+
+## Turning multi dimensional data into linear data
+
+sorted set의 score는 값이 하나뿐이라, 만약 여러 필드의 데이터를 기준으로 인덱싱하여 다차원적으로 정렬하고 싶다면 이를 선형적으로 바꾸는 과정을 거쳐야한다.
+
+- ex -  [Redis geo indexing API](https://redis.io/commands/geoadd/)에서는 위도/경도의 2개 데이터값을 합쳐 정렬하기 위해 Geo Hash라는 방식을 사용하여 선형변환한다.
+- Redis로 다차원 데이터를 정렬하는 여러 라이브러리들이 언어별로 존재한다.
+
+
+
+# Redis Pattern Examples
+
+Redis를 애플리케이션 DB로 삼아 트위터 기능을 클론 설계함으로써 레디스를 사용하는 여러 방식들을 알아볼 수 있다.
+
+- [PHP 구현체 - Retwis](https://github.com/antirez/retwis)
+- [Java 구현체 - Retwis-J](https://docs.spring.io/spring-data/data-keyvalue/examples/retwisj/current/)
+
+
+
+구구절절한 구현이 많으므로 특징적인 부분들만 간략하게 정리하겠다.
+
+- Key-value 저장소를 사용할 때에는 관계형 DB처럼 역참조가 어려우므로, **모든 정보에 기본키로만 접근한다**는 원칙을 가지고 설계해야한다.
+  - 따라서 만약 value를 기준으로 key를 가져와야하는 경우가 생긴다면 관계를 뒤집어서 value => key, key => value로 동일한 데이터를 집어넣어 주는것이 원칙이다.
+- 게시글 피드(업데이트)같은 정보들은 최신순으로 정렬해야하고, 페이지네이션이 구현되어야한다.
+  - 따라서 큐/스택처럼 사용할 수 있고 RANGE로 범위 쿼리가 가능한 List를 사용한다.
+- 사용자 인증시 세션 정보를 레디스에 보관하여 유효성을 검사할 수 있다.
+- 서비스 확장성을 위해서는 샤딩 혹은 Redis 클러스터 도입을 고려한다.
+
+
