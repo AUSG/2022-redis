@@ -7,7 +7,7 @@
 - 1주차 (12/04): [Redis data types](https://redis.io/docs/data-types/)
 - 2주차 (12/11): [Using Redis](https://redis.io/docs/manual/)
 - 3주차 (12/18): [Redis programming patterns](https://redis.io/docs/manual/patterns/)
-- 4주차 (12/25): [Managing Redis (~Redis replication)](https://redis.io/docs/management/)
+- 4주차 (12/28): [Managing Redis (~Redis replication)](https://redis.io/docs/management/)
 - 5주차 (01/01): TBD
 
 ### 스터디 자료
