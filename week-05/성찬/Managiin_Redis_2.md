@@ -97,4 +97,15 @@ appendonly yes
 
 ## AOF
 ### AOF advantages
+* AOF는 내구성이 더 좋다. 
+  * fsync 에 대한 여러가지 정책을 선택할 수 있다. (fsync every second, every query)
+  * default인 fsync every second 도 쓰기 성능이 훌륭하다.
+  * 쓰기는 백그라운드 프로세스가 수행하고, 백그라운드 프로세스가 없을 때만 메인 스레드가 쓰기를 시도하므로 1초간의 lose write가 발생한다.
+* AOF 는 append-only 이므로 비정상적 종료에도 검색, 데이터 훼손 문제가 없다.
+  * 쓰다가 갑자기 종료되어도 redis-check-aof tool이 해당 문제를 쉽게 고쳐준다.
+* Redis는 AOF 파일이 너무 커지면 rewrite를 활성화한다. 
+  * rewrite는 새로운 파일 생성과, 기존 파일 둘 다 완전히 안전하게 수행된다.
+* AOF 는 파싱하기 쉬운 포맷으로 모든 operation에 대한 로그가 적재된다.
+
 ### AOF disadvantages
+* 
