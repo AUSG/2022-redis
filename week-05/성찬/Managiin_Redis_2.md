@@ -108,4 +108,35 @@ appendonly yes
 * AOF 는 파싱하기 쉬운 포맷으로 모든 operation에 대한 로그가 적재된다.
 
 ### AOF disadvantages
-* 
+* AOF 파일은 대부분 RDB file 보다 저장 공간 효율이 떨어진다.
+* AOF 파일은 대부분 RDB 보다 느릴 수 있다. 기본적으로 느린 (RDB에 비해) fsync policy를 가지고 있다. every second policy 정도면 충분히 빠르다.
+* Redis < 7.0 
+  * rewrite 도중 write 할 때 지나치게 많은 메모리를 사용할 수 있다.
+  * rewrite 도중 도착한 모든 write 명령어는 disk에 두차례 쓰인다.
+  * 하여튼 rewrite 할 때 안좋다.
+
+##  What should i use?
+* AOF, RDB 모드 둘 다 켜면 PostgreSQL 급의 data safety 를 보장한다. (성능은 왜 비교 안함?)
+* 데이터의 유실이 싫다면 RDB alone
+* 많은 유저들이 AOF alone 쓴다. 근데 권장하지 않는다. RDB snapshot을 쓰는게 더 좋다. 
+
+What should i do 시리즈는 나중에 찾아보자.
+
+## Interactions between AOF and RDB persistence
+* Redis >= 2.4 부터는 RDB snapshot가 이미 진행 중일때는 AOF rewrite 트리거 수행을 피한다. 
+* 반대로 AOF rewrite 진행 중일 때 `BGSAVE` 를 수행을 피한다.
+* 그래서 redis background process가 동시에 heavy disk I/O 하는 것을 예방한다.  
+* snapshot이 진행중인데 사용자가 BGREWRITEAOF 요청을 전송하면 snapshot 완료 후에 진행 되는 것으로 스케쥴링 된다. bb  
+* AOF, RDB 모두 활성화 되어 있는데 Redis가 재시작되면 AOF 파일을 참고해서 데이터를 복원한다.
+
+## Backing up Redis data
+Redis 는 데이터 백업하기 쉬우니까 백업 해두자.  
+RDB snapshot을 저장하고 cron script를 통해서 RDB file을 외부에 백업해두자.
+
+## Backing up AOF persistence
+AOF file 로도 백업을 할 수 있다. 주의할 점이 있는데 rewrite 할 때는 백업할 수 없다.  
+AOF는 아래 절차대로 진행하자.
+1. automatic rewrite 끄기 `CONFIG SET auto-aof-rewirte-percentage 0`
+2. 진행 중인 rewrite 있는지 체크 `INFO persistence` 입력 후 `aof_rewrite_in_progress`가 0인 것을 확인
+3. 파일을 `appenddirname` 디렉토리에 복사한다.
+4. rewrite 재설정 `CONFIG SET auto-aof-rewirte-percentage`
